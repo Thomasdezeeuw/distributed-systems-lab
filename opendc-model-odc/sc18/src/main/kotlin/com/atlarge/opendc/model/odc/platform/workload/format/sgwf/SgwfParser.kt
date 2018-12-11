@@ -59,21 +59,21 @@ class SgwfParser {
                 .forEach { line ->
                     val values = line.split(",")
 
-                    if (values.size < 7) {
+                    if (values.size < 10) {
                         throw IllegalArgumentException("The line is malformed: $line")
                     }
 
                     val jobId = values[0].trim().toInt()
                     val taskId = values[1].trim().toInt()
-                    val priority: Int = 0
                     val submitTime = values[2].trim().toLong()
                     val runtime = values[3].trim().toLong()
                     val cores = values[4].trim().toInt()
                     val dependencies = values[6].split(" ")
                         .filter { it.isNotEmpty() }
                         .map { it.trim().toInt() }
-                    val inputSize: Long = 0
-                    val outputSize: Long = 0
+                    val inputSize = values[7].trim().toLong()
+                    val outputSize = values[8].trim().toLong()
+                    val priority = values[8].trim().toInt()
 
                     val flops: Long = 4000 * runtime * cores
 
