@@ -1,0 +1,345 @@
+\documentclass[twocolumn,a4]{scrartcl}
+
+\usepackage{url}
+\usepackage{nameref}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage[margin=2.0cm]{geometry}
+\usepackage{float}
+\usepackage{tabularx}
+\usepackage{hyperref}
+
+\usepackage[toc,page]{appendix}
+
+\title{Implementation \& Analysis of Different Allocation Policies}
+\subtitle{
+  Distributed Systems -- Lab exercise \\
+  Course Instructor: prof. dr. ir. A. Iosup \\
+  Lab supervisor: ir. L. Versluis
+}
+\author{
+  Jan Haenen \\ j.p.haenen@student.vu.nl \\1822306 \and
+  Kim van Putten \\ k.e.van.putten@student.vu.nl \\ 2525287 \and
+  Ruben Stam \\ r.d.stam@student.vu.nl \\ 2597714 \and
+  Thomas de Zeeuw \\ t.m.de.zeeuw@student.vu.nl \\ 2599441
+}
+\date{December 19th 2018}
+
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+\emph{With the increasing demand and deployment of cloud computing, scheduling computing jobs on heterogeneous cloud environments while providing a high Quality-of-Service (QoS) for costumers is an important and difficult challenge. In this paper we present four allocation policies from literature which we implemented in the OpenDC datacentre simulator, and perform an analysis comparing the performance of these policies. We perform experiments with two different workloads and two different environment setups. For the analysis we looked at the wait time and makespan metrics, and from the results we find that the simpler allocation policies appear to outperform the more complex ones.}
+
+\end{abstract}
+
+
+
+\section{Introduction} \label{sec_introduction}
+
+In recent years cloud-computing has made rapid developments and large- scale cluster computing has rapidly become more commonly adapted. Scheduling computing tasks efficiently has become increasingly more important as the demand for high performance on distributed systems rises. A common problem in datacentres is how to schedule tasks to available resources efficiently, such that available resources are optimally used and computation jobs are executed in a reasonable time frame for the users without having the task scheduling process take up too much resources. For example in Google's datacentres the scheduler alone accounts for more than 5\% of all datacentre cycles \cite{DBLP:conf/isca/KanevDHRMWB15}.
+
+We were tasked by WantScheduler BV to implement a number of allocation policies from literature and analyse there performance through experimentation. We implemented these allocation policies in the OpenDC simulation environment \cite{DBLP:conf/ispdc/IosupABBENOTVV17}.
+
+\subsection{Related work} \label{sec_related_work}
+
+Many different task scheduling algorithms have already been proposed. In this section we give a brief overview of some policies of different natures.
+
+Matchmaking policies such as Gangmatching focus on finding compatible pairs between jobs and machines \cite{DBLP:conf/hpdc/RamanLS03}. The Condor Project implements a variety of matchmaking policies for matching resources to jobs \cite{DBLP:journals/concurrency/ThainTL05}\cite{DBLP:conf/sosp/IsardPCWTG09}.
+
+Several task scheduling policies implement a guided random search in an attempt to find the optimal scheduling of tasks. An example of such policies are Multiple Priority Queueing Genetic Algorithm (MPQGA) \cite{DBLP:conf/hpcc/XuLKQ12}, which combines a genetic algorithm approach to assign priorities to tasks with the heuristic based HEFT \cite{DBLP:journals/tpds/TopcuogluHW02} policy to map tasks to machines. Another example is the Ant Colony System (ACS) policy which applies ant colony optimization to task scheduling based on various quality of service (QoS) parameters \cite{DBLP:journals/tsmc/ChenZ09}.
+
+Many heuristic allocation policies such as HEFT \cite{DBLP:journals/tpds/TopcuogluHW02}, LBA, Min-min and Max-min \cite{DBLP:conf/hcw/ArmstrongHK98} base their scheduling decisions on the expected runtimes of tasks. Ilyushkin et al. did research into scheduling workflows with unknown task runtimes \cite{DBLP:conf/ccgrid/IlyushkinGE15}.
+
+Performing experiments to analyze the performance of scheduling policies on actual distributed systems can be time consuming and expensive. Research is being done to create simulating environments to provide researchers a tool to perform experiments with distributed systems of various sizes and setups without the need to reserve the actual resources. Iosup et al. introduced the OpenDC datacentre simulator, which we used to run our experiments \cite{DBLP:conf/ispdc/IosupABBENOTVV17}, which was also used by Andreadis et al. in \cite{DBLP:conf/sc/AndreadisVMI18}.
+
+
+\subsection{Implemented policies} \label{sec_intro_policies}
+
+For this assignment we decide only to implement allocation policies that fit well within the OpenDC framework. We decided against modifying the framework itself to ensured that it would continue operate correctly. This did mean we were limited in the algorithms that could be implemented. The following allocation policies were implemented and analyzed.
+
+\begin{enumerate}
+  \item Heterogeneous Earliest Finish Time (HEFT), \cite{DBLP:journals/tpds/TopcuogluHW02}
+  \item Critical-Path-on-a-Processor (CPOP), \cite{DBLP:conf/hcw/TopcuogluHW99}
+  \item Priority Impact Scheduling Algorithm (PISA), \cite{6174855} and
+  \item Round Robin. \cite{DBLP:journals/jacm/Rasch70}
+\end{enumerate}
+
+\subsection{Report structure} \label{sec_structure}
+
+In the following section \ref{sec_background} we describe OpenDC in some more detail and describe the requirements. The allocation policies are described in greater detail in section \ref{sec_implementation}. In section \ref{sec_experimental_setup} the experimental setup is described, followed by the results in section \ref{sec_results}. The article ends with the conclusion in section \ref{sec_conclusion} and the discussion, including future work, in section \ref{sec_discussion}.
+
+In this report we'll use the following terms: workloads, jobs and tasks. Workload consists of one or more jobs, where jobs could be Workflows, Bag of Tasks (BoT) or any other collection of tasks. Tasks are the smallest unit of computation and is the thing actually scheduled and run on machines. Tasks can have dependencies on other tasks, but only within the same job.
+
+\section{Background} \label{sec_background}
+
+The allocation policies were implemented in the OpenDC framework. OpenDC is framework that allows simulation of datacentres, including allocation policies, and is freely available at https://opendc.org \cite{DBLP:conf/ispdc/IosupABBENOTVV17}. Because OpenDC is still in early development it currently imposes a number of limitations on the allocation policies.
+
+The allocation scheduling is split in two parts, 1) sorting queued tasks and 2) selecting a machine to run the highest priority task on, where the highest priority task is defined by the sorting policing in step 1.
+
+Unfortunately two (fairly) recent allocation policies, Quincy \cite{DBLP:conf/sosp/IsardPCWTG09} and Firmament \cite{DBLP:conf/osdi/GogSGWH16}, did not fit this structure. Both policies needed complete information about all machines and all queued and running tasks. At the time of implementation OpenDC did offer this functionality, which made it impossible to correctly implemented these policies without modifying the framework itself, something we decide against to ensure correct simulation and testing of the policies.
+
+
+
+\section{Allocation policies} \label{sec_implementation}
+
+We implemented four allocation policies in the OpenDC framework. Two of these policies implement both task sorting and machine selection, the two stages of scheduling in OpenDC, and the other two only one of the stages.
+
+The policies were implemented such that experiments were repeatable and the outcome of simulations always result in the same output. The source code of the implemented allocation policies is made available open-source at \cite{DS:policies-opensource}. The policies are also in the process of being upstreamed the the OpenDC framework.
+
+
+\subsection{HEFT} \label{sec_heft}
+
+Heterogeneous Earliest Finish Time (HEFT) is a greedy policy that prioritizes the tasks based on the earliest possible finish time of a task. For each task a upward rank is calculated, which is the longest path from the task to the exit node (task in a job) based on the average execution cost and average communication cost of the tasks that lie on the path. Tasks are assigned to a machine that minimizes the earliest execution finish time of the task, i.e. the machine that would complete the task the earliest. \cite{DBLP:journals/tpds/TopcuogluHW02}
+
+Note however that OpenDC the communication time between machines is not simulated, since this functionality is not (yet) available.
+
+\subsection{CPOP} \label{sec_cpop}
+
+Critical-Path-on-a-Processor (CPOP) is similar to HEFT in that it also uses the upward rank of a task. The full algorithm as described by Topcuoglu et al. \cite{DBLP:conf/hcw/TopcuogluHW99} determines for each job what the critical path is and assigns all tasks on the critical path to a single machine that minimizes the execution time of the entire critical path.
+
+Unfortunately OpenDC does not support this implementation as the current framework does not allow access to job information during the execution of a sorting policy. We therefore implemented a simplified version of the policy that sorts tasks based on the upwards rank + downward rank, where the downward rank is essentially the upward rank of a tasks predecessors. This way the policy will still give priority to tasks that lie on the critical path of a job as they share the highest rank within a job. The downside of this simplified implementation is that tasks on a critical path may not necessarily be scheduled to the same machine, and so the communication time between tasks on the critical path may be higher because data may have to be transferred between machines. However the version of OpenDC used at the time of implementation did not simulate transferring of data between machines, something that will effect the results.
+
+
+\subsection{PISA} \label{sec_pisa}
+
+Priority Impact Scheduling Algorithm (PISA) is only a task sorting policy that sorts tasks based on their priority, which may be assigned by the user or by the compute provider. The policy prevents starvation of low-priority tasks by keeping track how often a task was not scheduled because higher priority task was scheduled instead. Once a threshold has been reached a low priority task will be given maximum priority so that it will be scheduled next even if higher priority tasks are present in the queue. Because Wu et al. \cite{6174855} do not present a recommended value for the threshold we arbitrarily decided on a threshold of 100 for our experiments. Since PISA is only a task sorting algorithm we used it in combination with a machine selection policy in our experiments, see section \ref{sec_experimental_setup} \nameref{sec_experimental_setup} for more.
+
+Since PISA is a sorting only policy it will be matched up with a number of machine selection policies; Round Robin (see below), Best Fit, First Fit, Worst Fit.
+
+
+\subsection{Round Robin} \label{sec_round_robin}
+
+Round Robin is a machine selection policy. It simply iterates through the available machines and schedules each task on the next machine that has enough resources available for the task \cite{DBLP:journals/jacm/Rasch70}. Similarly to PISA, this policy was used in combination with a sorting policy, see section \ref{sec_experimental_setup} \nameref{sec_experimental_setup} for more.
+
+Since Round Robin is a selection only policy it will matched up with a number of sorting policies. Shortest Remaining Time First (SRTF), First in First Out (FIFO), Random sorting and PISA.
+
+
+
+\section{Experimental Setup} \label{sec_experimental_setup}
+
+To evaluate the performance of the different allocation policies we used two workloads and two environmental setups, which are described in the sections below.
+
+\subsection{Workloads} \label{sec_workloads}
+
+% Force the table to be on the left side of the page.
+\begin{table}[h]
+\setlength\tabcolsep{2pt}
+\begin{tabular}{l l l}
+  \hline
+  \textbf{Property}         & \textbf{Workload 1} & \textbf{Workload 2} \\
+  \hline
+  Mean task runtime         & 34.12 s             & 33.64s              \\
+  Median task runtime       & 3 s                 & 3 s                 \\
+  SD of task runtime        & 65.35 s             & 87.25s              \\
+  Mean job execution time   & 2367 s              & 2334 s              \\
+  Median job execution time & 1292 s              & 1954 s              \\
+  SD of job execution time  & 3909 s              & 1222 s              \\
+  Total task runtime        & 473,429 s           & 466,848 s           \\
+  Mean workflow size        & \multicolumn{2}{c}{69 tasks}              \\
+  Median workflow size      & \multicolumn{2}{c}{35 tasks}              \\
+  SD of workflow size       & \multicolumn{2}{c}{98 tasks}              \\
+  Total task number         & \multicolumn{2}{c}{13,876 tasks}          \\
+  \hline
+\end{tabular}
+\caption{Workload properties adapted from \cite{DBLP:conf/wosp/IlyushkinAHPGEI17}.}
+\label{table_workload_properties}
+\end{table}
+
+In the experiments we use two workloads from the SPEC RG Cloud Group \cite{DBLP:conf/wosp/IlyushkinAHPGEI17}. These workloads have different task runtimes and are identical in all other properties, namely arrival times, number of tasks per job and task dependencies. Properties of the tasks and jobs from both workloads are shown in table \ref{table_workload_properties}. The difference in the distribution of the runtimes can also be seen in figure \ref{figure_workload_avg} which shows that arriving load on the system is a lot more bursty for workload 1 compared to workload 2.
+
+\begin{figure*}[h]
+  \centering
+  \includegraphics[width=\textwidth]{avg_workload_load.png}
+  \caption{Average load, in 15 minute intervals, for workloads 1 (left) and 2 (right)}
+  \label{figure_workload_avg}
+\end{figure*}
+
+The allocation policies HEFT and CPOP use communication cost and PISA uses priority. These require information not present in the source workloads, therefore the required data was generated. In order to compute communication cost input and output sizes are generated that are normally distributed with mean 1000 MB and standard deviation 250 MB. Sizes with generated negative values are set to 0. Priorities are set at a job level. Job priorities are generated using a discrete uniform distribution with three levels.
+
+
+\subsection{Environment Setup} \label{sec_environment_setup}
+
+In the experiments we want to compare the performance of the different allocation policies for the above described workloads. To achieve this we need an environment setup that matches the workloads, e.g. if we over provision no significant scheduling queues will form. However given the stochastic nature of the arrival process and runtimes, and that task have dependencies, an utilization of 100\% is unattainable.  A resource utilization of 70\% is more realistic. \cite{DBLP:conf/ipps/JonesN99} Therefore we designed the environments in such a way that the average load on the system is equal to roughly 70\% of the systems capacity, as can be seen in table \ref{table_setup_load}.
+
+\begin{table}[h]
+\begin{tabular}{l | l | l}
+  \textbf{Workload} & \textbf{Setup} & \textbf{Avg. load} \\
+  \hline
+  w1 & s1 & 0.696 \\
+  w1 & s2 & 0.709 \\
+  \hline
+  w2 & s1 & 0.686 \\
+  w2 & s2 & 0.699 \\
+\end{tabular}
+\caption{Average load for each setup}
+\label{table_setup_load}
+\end{table}
+
+Two of the policies, HEFT and CPOP, take into account the heterogeneity of an environment, whereas the other policies do not. Therefore we wanted to compare the performance of the policies in a heterogeneous and homogeneous environment. We designed two datacentre setups, shown in table \ref{table_setup}, where the i7 and i5 cores are defined in the OpenDC framework (i7 is roughly 17\% faster then i5). As the table show setup 1 is heterogeneous and setup 2 is homogeneous.
+
+\begin{table}[h]
+\begin{tabular}{l || l | l | l}
+  \textbf{Setup} & \textbf{i7 cores} & \textbf{i5 cores} & \textbf{Machines} \\
+  \hline
+  s1 & 20 (5x4) & 10 (5x2) & 10 \\
+  s2 & 28 (7x4) & 0 & 7 \\
+\end{tabular}
+\caption{Datacentre setups}
+\label{table_setup}
+\end{table}
+
+
+
+\section{Results} \label{sec_results}
+
+For the analysis we look at the following metrics: the wait time and the makespan. First starting with the overall wait time with respect to the different policies and second the average wait time in 15 minute intervals. Both will show the wait time at the task and the job level. Finally, the makespan metric results will be discussed.
+
+
+\subsection{Wait time} \label{sec_results_wait_time}
+
+The wait time metric measure shows how long it takes for a task to be run from the moment it was added to the scheduling queue. Figure \ref{figure_wait_tasks} shows the measured wait time of the tasks. We observe an increase in wait times for the second setup, both for workloads 1 and 2, this is due to setup 2 having less compute power, as discussed in \ref{sec_environment_setup}.
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width = 0.85\textwidth]{wait_time_task.png}
+  \caption{Wait time for tasks in workload 1 (top) and workload 2 (bottom), using setup 1 (left) and setup 2 (right)}
+  \label{figure_wait_tasks}
+\end{figure*}
+
+We see that the wait times for the HEFT policy have a large number of outliers. We believe this is due the greedy nature of the algorithm, as previously discussed in section \ref{sec_heft}. HEFT sacrifices long-term benefits, e.g. overall average wait time, for short-term benefits, e.g. reducing the time until a next task is completed. This is one of the known short-coming of HEFT. SRTF-Round Robin shows similar results. Again we believe that the greedy nature of the SRTF algorithm causes these results.
+
+We do find it interesting that CPOP doesn't have a large amount of outliers despite the algorithm being so similar to HEFT. The only difference with the HEFT policy is the calculation of the downward rank of a task, this seems to improve the algorithm significantly compared to HEFT.
+
+Figure \ref{figure_wait_jobs} shows the wait time of jobs. The job wait time metric measure shows how long it takes for the first task of this job to be run from the moment it was added to the scheduling queue. We see that for CPOP, FIFO-Round Robin and HEFT the wait time is much higher compare to the other algorithms.
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width = 0.85\textwidth]{wait_time_job.png}
+  \caption{Wait time for jobs in workload 1 (top) and workload 2 (bottom), using setup 1 (left) and setup 2 (right)}
+  \label{figure_wait_jobs}
+\end{figure*}
+
+For FIFO this is expected as tasks are always placed at the end of the queue, meaning that a long job will block all other jobs and increase there wait time. For HEFT we have the same argument as we had for the wait time of a task, we believe this is caused by the greedy nature of the algorithm. CPOP seems to have roughly the same results as HEFT, meaning that although the addition of the downward helps the wait time of individual tasks, it doesn't seem to be the case of the wait time of jobs.
+
+
+\subsection{Average wait time in intervals} \label{sec_results_wait_time_intervals}
+
+In the previous section we looked at the wait times in absolute numbers, in this section we'll look at the them in intervals of 15 minutes. This is interesting because it might be acceptable, but at least expected, that the wait times increase after an increase in workload.
+
+Figure \ref{figure_wait_interval_tasks} shows the average wait time of tasks. An increase in wait time is clearly visible after the 200 minute mark for workload 1, which corresponds with the increase in workload around the same time mark, see \ref{figure_workload_avg}.
+
+\begin{figure*}[p]
+    \centering
+  \includegraphics[width = 0.85\textwidth]{avg_wait_time_task.png}
+    \caption{Wait time for tasks in intervals of 15 minutes in workload 1 (top) and workload 2 (bottom), using setup 1 (left) and setup 2 (right)}
+    \label{figure_wait_interval_tasks}
+\end{figure*}
+
+SRTF-Round Robin is a clear winner here, especially during the bursts of increased workload. Apparently simple is better, at least for this metric and these workloads.
+
+Figure \ref{figure_wait_interval_jobs} shows the average wait time in intervals of 15 minutes for jobs. Much like we saw in section \ref{sec_results_wait_time} CPOP, HEFT, FIFO-Round Robin preform badly, compared to the other algorithms.
+
+\begin{figure*}[p]
+    \centering
+  \includegraphics[width = 0.85\textwidth]{avg_wait_time_job.png}
+    \caption{Wait time for jobs in intervals of 15 minutes in workload 1 (top) and workload 2 (bottom), using setup 1 (left) and setup 2 (right)}
+    \label{figure_wait_interval_jobs}
+\end{figure*}
+
+
+\subsection{Makespan} \label{sec_results_makespan}
+
+The makespan is the time elapsed from the moment the first task of a job is added to the scheduling queue, to the completion of the last task of the job \cite{DBLP:conf/sc/AndreadisVMI18}. Since the wait time for the jobs for the policies CPOP, FIFO-Round Robin and HEFT is higher than the others we expect that the makespans will also be higher.
+
+Figure \ref{figure_makespan_jobs} shows the makespans for all jobs for the different allocation policies. We observe that HEFT indeed has noticeable more jobs with longer makespans than the other policies, but CPOP and FIFO-Round Robin do not. Again here the calculation of the downward rank seems to improve the CPOP algorithm compared to HEFT.
+
+We believe that because HEFT only prioritises based on the upward rank, the lasts tasks of a job are more likely to be blocked by tasks from newly arriving jobs compared to CPOP which also considers the downward rank. This means that during times with peak arrival rates, the last couple of tasks of nearly completed job may not be scheduled until the newly arriving jobs are at least partially completed. This may explain why HEFT shows a considerably longer makespan for some tasks.
+
+Like HEFT, we also see that SRTF-Round Robin has many outliers with a high makespan while the median remains low. We believe this may be because with both HEFT and SRTF-Round Robin it might occur more often that newly arriving tasks get higher priority than tasks already in the queue. In the case of SRTF-Round Robin tasks with a long completion time are blocked by shorter tasks. In the case of HEFT the last tasks of a job are given a low priority and thus the tasks from newly arriving jobs are scheduled first.
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width = 0.85\textwidth]{makespan_job.png}
+  \caption{Makespan for jobs for workload 1 (top) and workload 2 (bottom), using setup 1 (left) and setup 2 (right)}
+  \label{figure_makespan_jobs}
+\end{figure*}
+
+Figure \ref{figure_avg_makespan_jobs} shows the makespan for jobs in 15 minute intervals. For workload 1 we see the same increase in makespan around the 200 minute mark, as we saw for the wait times previously.
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width = 0.85\textwidth]{avg_makespan_job.png}
+  \caption{Makespan for jobs in intervals of 15 minutes for workload 1 (top) and workload 2 (bottom), using setup 1 (left) and setup 2 (right)}
+  \label{figure_avg_makespan_jobs}
+\end{figure*}
+
+But in this graph HEFT is the only outlier, while the other policies are closer together. We already determine that this was the case for HEFT, but it's interesting to see that CPOP and FIFO-Round Robin are closer to the other policies. From figure \ref{figure_wait_jobs} we saw that for CPOP and FIFO-Round Robin the wait time of the first task may sometimes be higher, possibly caused by contention during peak arrival times, but here we see that the average completion time per job are generally lower.
+
+\section{Discussion} \label{sec_discussion}
+
+It is interest to see that appears to CPOP improve on HEFT in a number of metrics by adding the calculation of the downward rank of tasks. But still both CPOP and HEFT are often found at the bottom of the results for our tests. The other algorithms often do better, even though they are very simple in design.
+
+One reason could be that OpenDC doesn't simulate take communication time and does not take it into account when measuring, where both CPOP and HEFT do scheduling. If communication was taking into account we could see different results. As it currently stands, we may be seeing inaccurate results because HEFT and CPOP may choose to schedule tasks to less optimal machines in order to decrease communication times.
+
+It is hard to declare a winner here, we can however say that for the makespan metric FIFO-Round Robin and SRTF-Round Robin have a slight edge over the other allocation policies. For the wait time metrics, both for tasks and jobs, the SRTF-Round Robin has a slight edge.
+
+We would also like to discuss the OpenDC framework. The concept of simulation a datacentre is quite nice and, as far as we can tell, it is done very well. However, partly due to it's age, it far from complete. A number of elements are missing from the simulator, some that we would like to mention:
+
+\begin{itemize}
+    \item Communication between machines not taking into account, e.g. when moving input data for a task to a machine.
+    \item No metrics about the runtime of the scheduling policy. This one is much harder to get then the virtual runtime of tasks on machine, but still very important. As mentioned previously in Google's datacentres the scheduler alone accounts for more than 5\% of all  cycles \cite{DBLP:conf/isca/KanevDHRMWB15}, so choosing a simpler scheduling over a more complex one could be beneficial in practice.
+    \item Evaluating policies using makespan can have bias towards larger jobs. It would be better to evaluate using job slowdown, which is the makespan divided by the makespan of that job in an empty system with exclusive access to all the processors \cite{DBLP:conf/ccgrid/IlyushkinGE15}. An upper bound estimate of this optimal makespan could be made by simulating jobs individually in OpenDC using the corresponding environment setup and multiple scheduling policies. Then use the minimum makespan found as an estimate for the optimal makespan for that job and environment setup. Due to time constraints we were not able to implement this.
+\end{itemize}
+
+
+
+\section{Conclusion} \label{sec_conclusion}
+
+In this report we have presented a performance analysis comparing four allocation policies for heterogeneous cloud environments. This analysis was doing using the OpenDC datacentre simulator. Our analysis shows that in many cases the simpler scheduling policies outperform the more complex polices, however due to OpenDCs current limitations we feel that these results may be inaccurate and put the HEFT and CPOP policies at a disadvantage.
+
+We have identified and suggested some points for improvement for the OpenDC simulator which, when implemented, may provide more insight into the performance of different allocation policies. But this is a subject for future work.
+
+
+
+\bibliography{sources}
+\bibliographystyle{plain}
+
+
+
+\begin{appendices}
+
+\section{Time Sheet}
+
+Table \ref{table_time_sheet} shows the documented time spend on each activity related to the assignment.
+
+\begin{table}[h]
+\begin{tabular}{r r r r r || r}
+  & \rotatebox[origin=l]{90}{Thomas} & \rotatebox[origin=l]{90}{Ruben} & \rotatebox[origin=l]{90}{Kim} & \rotatebox[origin=l]{90}{Jan} & \rotatebox[origin=l]{90}{Total} \\
+  \hline
+  Think-time & 6:30 & 10:30 & 10:45 & 12:30 & 40:15 \\
+  Dev-time & 17:55 & 4:00 & 15:30 & 11:30 & 48:55 \\
+  Xp-time & 1:30 & 1:30 & 1:30 & 1:00 & 5:30 \\
+  Analysis-time & 0:00 & 9:00 & 0:00 & 5:30 & 14:30 \\
+  Write-time & 12:30 & 12:00 & 12:55 & 8:30 & 47:55 \\
+  Wasted-time & 4:15 & 2:00 & 3:15 & 2:45 & 10:15 \\
+  \hline \hline
+  Total & 42:40 & 39:00 & 43:55 & 41:45 & 167:20 \\
+\end{tabular}
+\caption{Time sheet}
+\label{table_time_sheet}
+\end{table}
+
+
+
+\section{Source code}
+
+Our source code is available at \url{https://github.com/Thomasdezeeuw/distributed-systems-lab}. The policies we implemented for this report are also contributed back to OpenDC in the following pull requests: \href{https://github.com/atlarge-research/opendc-simulator/pull/34}{pr\#34}, \href{https://github.com/atlarge-research/opendc-simulator/pull/35}{pr\#35}, \href{https://github.com/atlarge-research/opendc-simulator/pull/36}{pr\#36}, \href{https://github.com/atlarge-research/opendc-simulator/pull/37}{pr\#37} and \href{https://github.com/atlarge-research/opendc-simulator/pull/38}{pr\#38}.
+
+\end{appendices}
+
+\end{document}

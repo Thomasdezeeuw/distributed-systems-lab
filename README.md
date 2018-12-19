@@ -3,6 +3,8 @@
 This was done as a Lab exercise for Distributed Computing Systems at the VU
 Amsterdam.
 
+The report can be found in the report directory, both in pdf and latex source.
+
 The source code can be found in the [expirements] branch, which is a fork of
 [OpenDC].
 
