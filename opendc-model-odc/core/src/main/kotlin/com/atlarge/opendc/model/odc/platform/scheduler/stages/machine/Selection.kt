@@ -160,7 +160,7 @@ class RrMachineSelectionPolicy(private var next: Int = 0) : MachineSelectionPoli
                 while (machines.size > 0) {
                     val index = machines.binarySearchBy(next) { machine -> machine.id }
                     next += 1;
-                    if (index != -1) {
+                    if (index >= 0) {
                         return machines[index]
                     } else if (next > maxId) {
                         next = 0;
