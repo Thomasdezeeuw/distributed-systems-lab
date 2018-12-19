@@ -37,3 +37,11 @@ for workload in experiment/input/*.gwf; do
 		mv "data" "data_${workload_name}_${setup_name}"
 	done
 done
+
+# Generate the analysis.
+mkdir -p analysis
+Rscript experiment/metric_analysis.R
+Rscript experiment/workload_analysis.R
+
+echo "Done. See 'analysis' directory for the analysis."
+echo "See 'data_*' directory for the raw data."
